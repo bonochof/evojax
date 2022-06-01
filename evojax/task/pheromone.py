@@ -23,6 +23,7 @@ from functools import partial
 from PIL import Image
 from PIL import ImageDraw
 import numpy as np
+import matplotlib.pyplot as plt
 
 import jax
 import jax.numpy as jnp
@@ -58,6 +59,7 @@ class AntStatus(object):
 @dataclass
 class State(TaskState):
     agent_state: AntStatus
+    field: jnp.ndarray
     obs: jnp.ndarray
     steps: jnp.int32
     key: jnp.ndarray
@@ -79,13 +81,15 @@ def create_ants(key: jnp.ndarray) -> AntStatus:
         vel=vel, ang_vel=ang_vel)
 
 
-def get_reward(agent: AntStatus) -> jnp.float32:
-    rewards = 0. #TODO
-    return jnp.cos(agent.angle)
+def get_reward(field: jnp.ndarray, agent: AntStatus) -> jnp.float32:
+    x = agent.pos_x.astype(jnp.int32)
+    y = agent.pos_y.astype(jnp.int32)
+    reward = field[y, x]
+    return reward
 
-def update_agent_state(agent: AntStatus) -> AntStatus:
-    vel = agent.vel - 0.3
-    ang_vel = agent.ang_vel + 0.01
+def update_agent_state(agent: AntStatus, action) -> AntStatus:
+    vel = agent.vel - action[0] * 0.1
+    ang_vel = agent.ang_vel + action[1] * 0.001
 
     angle = agent.angle + ang_vel
     pos_x = agent.pos_x + vel * jnp.cos(angle)
@@ -95,6 +99,12 @@ def update_agent_state(agent: AntStatus) -> AntStatus:
     ang_vel *= 0.95
 
     return AntStatus(pos_x=pos_x, pos_y=pos_y, angle=angle, vel=vel, ang_vel=ang_vel)
+
+def update_field(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
+    x = agent.pos_x.astype(jnp.int32)
+    y = agent.pos_y.astype(jnp.int32)
+    field = field.at[y, x].set(1.0)
+    return field
 
 def get_obs(agent: AntStatus) -> jnp.ndarray:
     x = agent.pos_x
@@ -115,19 +125,21 @@ class Pheromone(VectorizedTask):
         def reset_fn(key):
             next_key, key = random.split(key)
             agent = create_ants(key)
+            field = jnp.zeros((SCREEN_H, SCREEN_W), dtype=jnp.float32)
             obs = get_obs(agent)
-            return State(agent_state=agent, obs=obs,
+            return State(agent_state=agent, field=field, obs=obs,
                          steps=jnp.zeros((), dtype=jnp.int32), key=next_key)
         self._reset_fn = jax.jit(jax.vmap(reset_fn))
 
         def step_fn(state, action):
             next_key, _ = random.split(state.key)
-            agent = update_agent_state(state.agent_state)
-            reward = get_reward(agent)
+            agent = update_agent_state(state.agent_state, action)
+            field = update_field(state.field, agent)
+            reward = get_reward(field, agent)
             steps = state.steps + 1
             done = jnp.where(steps >= max_steps, 1, 0)
             obs = get_obs(agent)
-            return State(agent_state=agent, obs=obs,
+            return State(agent_state=agent, field=field, obs=obs,
                          steps=steps, key=next_key), reward, done
         self._step_fn = jax.jit(jax.vmap(step_fn))
 
@@ -141,10 +153,14 @@ class Pheromone(VectorizedTask):
 
     @staticmethod
     def render(state: State, task_id: int = 0) -> Image:
-        img = Image.new('RGB', (SCREEN_W, SCREEN_H), (255, 255, 255))
+        # Draw background
+        cmap = plt.get_cmap("viridis")
+        img = cmap(state.field, bytes=True)
+        img = Image.fromarray((img[0]).astype(np.uint8))
         draw = ImageDraw.Draw(img)
         state = tree_util.tree_map(lambda s: s[task_id], state)
-        # Draw the agent.
+
+        # Draw the agent
         agent = state.agent_state
         x, y, angle = agent.pos_x, agent.pos_y, agent.angle
         x_top = x - ANT_RADIUS * jnp.cos(angle)
@@ -165,5 +181,5 @@ class Pheromone(VectorizedTask):
             draw.ellipse(
                 (x_sensor - SENSOR_RADIUS, y_sensor - SENSOR_RADIUS,
                  x_sensor + SENSOR_RADIUS, y_sensor + SENSOR_RADIUS),
-                 fill=(0, 255, 0), outline=(0, 0, 0))
+                 fill=(0, 255, 0))
         return img

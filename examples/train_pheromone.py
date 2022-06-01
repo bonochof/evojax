@@ -106,16 +106,14 @@ def main(config):
         log_dir=log_dir,
         logger=logger,
     )
-    #trainer.run(demo_mode=False)
+    trainer.run(demo_mode=False)
 
-    """
     # Test the final model.
     src_file = os.path.join(log_dir, 'best.npz')
     tar_file = os.path.join(log_dir, 'model.npz')
     shutil.copy(src_file, tar_file)
     trainer.model_dir = log_dir
     trainer.run(demo_mode=True)
-    """
 
     # Visualize the policy.
     task_reset_fn = jax.jit(test_task.reset)
