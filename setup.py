@@ -44,9 +44,10 @@ setup(
         "jaxlib>=0.1.65",
         "Pillow",
         "cma",
+        "matplotlib",
     ],
     extras_require={
-        "extra": ['evosax', 'torchvision', 'pandas', 'procgen'],
+        "extra": ['evosax', 'torchvision', 'pandas', 'procgen', 'brax'],
     },
     dependency_links=[JAX_URL],
     python_requires=">=3.6",

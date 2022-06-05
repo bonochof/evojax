@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from .base import NEAlgorithm
+from .base import QualityDiversityMethod
 from .cma_wrapper import CMA
 from .pgpe import PGPE
 from .ars import ARS
@@ -20,6 +21,8 @@ from .simple_ga import SimpleGA
 from .open_es import OpenES
 from .cma_evosax import CMA_ES
 from .sep_cma_es import Sep_CMA_ES
+from .cma_jax import CMA_ES_JAX
+from .map_elites import MAPElites
 
 Strategies = {
     "CMA": CMA,
@@ -29,10 +32,13 @@ Strategies = {
     "OpenES": OpenES,
     "CMA_ES": CMA_ES,
     "Sep_CMA_ES": Sep_CMA_ES,
+    "CMA_ES_JAX": CMA_ES_JAX,
+    "MAPElites": MAPElites,
 }
 
 __all__ = [
     "NEAlgorithm",
+    "QualityDiversityMethod",
     "CMA",
     "PGPE",
     "ARS",
@@ -40,5 +46,7 @@ __all__ = [
     "OpenES",
     "CMA_ES",
     "Sep_CMA_ES",
+    "CMA_ES_JAX",
+    "MAPElites",
     "Strategies",
 ]
