@@ -39,14 +39,8 @@ SCREEN_H = 600
 ANT_RADIUS = 20
 SENSOR_RADIUS = 2
 MIN_DIST = 2 * ANT_RADIUS
-NUM_RANGE_SENSORS = 7
-DELTA_ANG = 2 * 3.14 / NUM_RANGE_SENSORS
-
-TYPE_VOID = 0
-TYPE_WALL = 1
-TYPE_FOOD = 2
-TYPE_POISON = 3
-TYPE_AGENT = 4
+NUM_SENSORS = 7
+DELTA_ANG = 2 * 3.14 / NUM_SENSORS
 
 @dataclass
 class AntStatus(object):
@@ -87,16 +81,13 @@ def get_reward(field: jnp.ndarray, agent: AntStatus) -> jnp.float32:
     reward = field[y, x]
     return reward
 
-def update_agent_state(agent: AntStatus, action) -> AntStatus:
-    vel = agent.vel - action[0] * 0.1
-    ang_vel = agent.ang_vel + action[1] * 0.001
+def move_agent(agent: AntStatus, action) -> AntStatus:
+    vel = action[0]
+    ang_vel = action[1] * 0.01
 
     angle = agent.angle + ang_vel
     pos_x = agent.pos_x + vel * jnp.cos(angle)
     pos_y = agent.pos_y + vel * jnp.sin(angle)
-
-    vel *= 0.95
-    ang_vel *= 0.95
 
     return AntStatus(pos_x=pos_x, pos_y=pos_y, angle=angle, vel=vel, ang_vel=ang_vel)
 
@@ -106,11 +97,17 @@ def update_field(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
     field = field.at[y, x].set(1.0)
     return field
 
-def get_obs(agent: AntStatus) -> jnp.ndarray:
+def get_obs(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
     x = agent.pos_x
     y = agent.pos_y
-    theta = agent.angle
-    return jnp.array([x, y, theta])
+
+    obs = []
+    for i in range(NUM_SENSORS):
+        ang = i * DELTA_ANG + agent.angle
+        x_sensor = (x + ANT_RADIUS * jnp.cos(ang)).astype(jnp.int32)
+        y_sensor = (y + ANT_RADIUS * jnp.sin(ang)).astype(jnp.int32)
+        obs.append(field[y_sensor, x_sensor])
+    return jnp.array(obs)
 
 class Pheromone(VectorizedTask):
     def __init__(self,
@@ -119,26 +116,26 @@ class Pheromone(VectorizedTask):
 
         self.max_steps = max_steps
         self.test = test
-        self.obs_shape = tuple([3, ])
+        self.obs_shape = tuple([NUM_SENSORS, ])
         self.act_shape = tuple([2, ])
 
         def reset_fn(key):
             next_key, key = random.split(key)
             agent = create_ants(key)
             field = jnp.zeros((SCREEN_H, SCREEN_W), dtype=jnp.float32)
-            obs = get_obs(agent)
+            obs = get_obs(field, agent)
             return State(agent_state=agent, field=field, obs=obs,
                          steps=jnp.zeros((), dtype=jnp.int32), key=next_key)
         self._reset_fn = jax.jit(jax.vmap(reset_fn))
 
         def step_fn(state, action):
             next_key, _ = random.split(state.key)
-            agent = update_agent_state(state.agent_state, action)
+            agent = move_agent(state.agent_state, action)
+            reward = get_reward(state.field, agent)
             field = update_field(state.field, agent)
-            reward = get_reward(field, agent)
             steps = state.steps + 1
             done = jnp.where(steps >= max_steps, 1, 0)
-            obs = get_obs(agent)
+            obs = get_obs(field, agent)
             return State(agent_state=agent, field=field, obs=obs,
                          steps=steps, key=next_key), reward, done
         self._step_fn = jax.jit(jax.vmap(step_fn))
@@ -163,8 +160,8 @@ class Pheromone(VectorizedTask):
         # Draw the agent
         agent = state.agent_state
         x, y, angle = agent.pos_x, agent.pos_y, agent.angle
-        x_top = x - ANT_RADIUS * jnp.cos(angle)
-        y_top = y - ANT_RADIUS * jnp.sin(angle)
+        x_top = x + ANT_RADIUS * jnp.cos(angle)
+        y_top = y + ANT_RADIUS * jnp.sin(angle)
         sensor_data = jnp.array(state.obs)
         draw.ellipse(
             (x - ANT_RADIUS, y - ANT_RADIUS,
@@ -174,10 +171,10 @@ class Pheromone(VectorizedTask):
         draw.ellipse((x - SENSOR_RADIUS, y - SENSOR_RADIUS,
                       x + SENSOR_RADIUS, y + SENSOR_RADIUS),
                       fill=(0, 0, 0), outline=(0, 0, 0))
-        for i in range(NUM_RANGE_SENSORS):
+        for i in range(NUM_SENSORS):
             ang = i * DELTA_ANG + agent.angle
-            x_sensor = x + ANT_RADIUS * np.cos(ang)
-            y_sensor = y + ANT_RADIUS * np.sin(ang)
+            x_sensor = x + ANT_RADIUS * jnp.cos(ang)
+            y_sensor = y + ANT_RADIUS * jnp.sin(ang)
             draw.ellipse(
                 (x_sensor - SENSOR_RADIUS, y_sensor - SENSOR_RADIUS,
                  x_sensor + SENSOR_RADIUS, y_sensor + SENSOR_RADIUS),
