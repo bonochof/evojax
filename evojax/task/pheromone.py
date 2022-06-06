@@ -86,8 +86,8 @@ def move_agent(agent: AntStatus, action) -> AntStatus:
     ang_vel = action[1] * 0.01
 
     angle = agent.angle + ang_vel
-    pos_x = agent.pos_x + vel * jnp.cos(angle)
-    pos_y = agent.pos_y + vel * jnp.sin(angle)
+    pos_x = (agent.pos_x + vel * jnp.cos(angle)) % SCREEN_W
+    pos_y = (agent.pos_y + vel * jnp.sin(angle)) % SCREEN_H
 
     return AntStatus(pos_x=pos_x, pos_y=pos_y, angle=angle, vel=vel, ang_vel=ang_vel)
 
@@ -104,8 +104,8 @@ def get_obs(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
     obs = []
     for i in range(NUM_SENSORS):
         ang = i * DELTA_ANG + agent.angle
-        x_sensor = (x + ANT_RADIUS * jnp.cos(ang)).astype(jnp.int32)
-        y_sensor = (y + ANT_RADIUS * jnp.sin(ang)).astype(jnp.int32)
+        x_sensor = ((x + ANT_RADIUS * jnp.cos(ang)).astype(jnp.int32)) % SCREEN_W
+        y_sensor = ((y + ANT_RADIUS * jnp.sin(ang)).astype(jnp.int32)) % SCREEN_H
         obs.append(field[y_sensor, x_sensor])
     return jnp.array(obs)
 
