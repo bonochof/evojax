@@ -82,7 +82,7 @@ def get_reward(field: jnp.ndarray, agent: AntStatus) -> jnp.float32:
     return reward
 
 def move_agent(agent: AntStatus, action) -> AntStatus:
-    vel = action[0]
+    vel = 1.5 - action[0]
     ang_vel = action[1] * 0.01
 
     angle = agent.angle + ang_vel
