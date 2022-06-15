@@ -94,7 +94,12 @@ def move_agent(agent: AntStatus, action) -> AntStatus:
 def update_field(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
     x = agent.pos_x.astype(jnp.int32)
     y = agent.pos_y.astype(jnp.int32)
-    field = field.at[y, x].set(1.0)
+    field = field.at[y-1, x].set(1.0)
+    field = field.at[y  , x].set(1.0)
+    field = field.at[y+1, x].set(1.0)
+    field = field.at[y, x-1].set(1.0)
+    field = field.at[y, x  ].set(1.0)
+    field = field.at[y, x+1].set(1.0)
     return field
 
 def get_obs(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
