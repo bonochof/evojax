@@ -41,6 +41,8 @@ SENSOR_RADIUS = 2
 MIN_DIST = 2 * ANT_RADIUS
 NUM_SENSORS = 7
 DELTA_ANG = 2 * 3.14 / NUM_SENSORS
+NUM_ACTION = 2  # velocity, angular-velocity
+NUM_CONTEXT_NEURON = 2
 
 @dataclass
 class AntStatus(object):
@@ -49,6 +51,8 @@ class AntStatus(object):
     angle: jnp.float32
     vel: jnp.float32
     ang_vel: jnp.float32
+    context1: jnp.float32
+    context2: jnp.float32
 
 @dataclass
 class State(TaskState):
@@ -63,6 +67,7 @@ class State(TaskState):
 def create_ants(key: jnp.ndarray) -> AntStatus:
     k_pos_x, k_pos_y, k_angle = random.split(key, 3)
     vel = ang_vel = 0.
+    context1 = context2 = 0.
     return AntStatus(
         pos_x=random.uniform(
             k_pos_x, shape=(), dtype=jnp.float32,
@@ -72,7 +77,8 @@ def create_ants(key: jnp.ndarray) -> AntStatus:
             minval=MIN_DIST, maxval=SCREEN_H - MIN_DIST),
         angle=random.uniform(
             k_angle, shape=(), dtype=jnp.float32),
-        vel=vel, ang_vel=ang_vel)
+        vel=vel, ang_vel=ang_vel,
+        context1=context1, context2=context2)
 
 
 def get_reward(field: jnp.ndarray, agent: AntStatus) -> jnp.float32:
@@ -89,7 +95,10 @@ def move_agent(agent: AntStatus, action) -> AntStatus:
     pos_x = (agent.pos_x + vel * jnp.cos(angle)) % SCREEN_W
     pos_y = (agent.pos_y + vel * jnp.sin(angle)) % SCREEN_H
 
-    return AntStatus(pos_x=pos_x, pos_y=pos_y, angle=angle, vel=vel, ang_vel=ang_vel)
+    context1 = action[2]
+    context2 = action[3]
+
+    return AntStatus(pos_x=pos_x, pos_y=pos_y, angle=angle, vel=vel, ang_vel=ang_vel, context1=context1, context2=context2)
 
 def update_field(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
     x = agent.pos_x.astype(jnp.int32)
@@ -112,6 +121,8 @@ def get_obs(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
         x_sensor = ((x + ANT_RADIUS * jnp.cos(ang)).astype(jnp.int32)) % SCREEN_W
         y_sensor = ((y + ANT_RADIUS * jnp.sin(ang)).astype(jnp.int32)) % SCREEN_H
         obs.append(field[y_sensor, x_sensor])
+    obs.append(agent.context1)
+    obs.append(agent.context2)
     return jnp.array(obs)
 
 class Pheromone(VectorizedTask):
@@ -121,8 +132,8 @@ class Pheromone(VectorizedTask):
 
         self.max_steps = max_steps
         self.test = test
-        self.obs_shape = tuple([NUM_SENSORS, ])
-        self.act_shape = tuple([2, ])
+        self.obs_shape = tuple([NUM_SENSORS + NUM_CONTEXT_NEURON, ])
+        self.act_shape = tuple([NUM_ACTION + NUM_CONTEXT_NEURON, ])
 
         def reset_fn(key):
             next_key, key = random.split(key)
@@ -180,8 +191,9 @@ class Pheromone(VectorizedTask):
             ang = i * DELTA_ANG + agent.angle
             x_sensor = x + ANT_RADIUS * jnp.cos(ang)
             y_sensor = y + ANT_RADIUS * jnp.sin(ang)
+            color = (200, 200, 0) if sensor_data[i] == 0. else (0, 255, 0)
             draw.ellipse(
                 (x_sensor - SENSOR_RADIUS, y_sensor - SENSOR_RADIUS,
                  x_sensor + SENSOR_RADIUS, y_sensor + SENSOR_RADIUS),
-                 fill=(0, 255, 0))
+                 fill=color)
         return img
