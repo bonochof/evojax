@@ -23,9 +23,9 @@ import os
 import shutil
 import jax
 
-from evojax.task.pheromone import Pheromone
+from pheromone import Pheromone
 from evojax.policy.mlp import MLPPolicy
-from evojax.algo import PGPE
+from evojax.algo import CMA
 from evojax import Trainer
 from evojax import util
 
@@ -33,15 +33,15 @@ from evojax import util
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--pop-size', type=int, default=256, help='ES population size.')
+        '--pop-size', type=int, default=8, help='ES population size.')
     parser.add_argument(
-        '--hidden-size', type=int, default=100, help='Policy hidden size.')
+        '--hidden-size', type=int, default=5, help='Policy hidden size.')
     parser.add_argument(
         '--num-tests', type=int, default=100, help='Number of test rollouts.')
     parser.add_argument(
-        '--n-repeats', type=int, default=32, help='Training repetitions.')
+        '--n-repeats', type=int, default=16, help='Training repetitions.')
     parser.add_argument(
-        '--max-iter', type=int, default=500, help='Max training iterations.')
+        '--max-iter', type=int, default=100, help='Max training iterations.')
     parser.add_argument(
         '--test-interval', type=int, default=50, help='Test interval.')
     parser.add_argument(
@@ -53,7 +53,7 @@ def parse_args():
     parser.add_argument(
         '--std-lr', type=float, default=0.088, help='Std learning rate.')
     parser.add_argument(
-        '--init-std', type=float, default=0.069, help='Initial std.')
+        '--init-std', type=float, default=0.5, help='Initial std.')
     parser.add_argument(
         '--gpu-id', type=str, help='GPU(s) to use.')
     parser.add_argument(
@@ -71,7 +71,7 @@ def main(config):
     logger.info('EvoJAX Pheromone')
     logger.info('=' * 30)
 
-    max_steps = 500
+    max_steps = 1000
     train_task = Pheromone(test=False, max_steps=max_steps)
     test_task = Pheromone(test=True, max_steps=max_steps)
     policy = MLPPolicy(
@@ -80,15 +80,12 @@ def main(config):
         output_dim=train_task.act_shape[0],
         output_act_fn='softmax',
     )
-    solver = PGPE(
+    solver = CMA(
         pop_size=config.pop_size,
         param_size=policy.num_params,
-        optimizer='adam',
-        center_learning_rate=config.center_lr,
-        stdev_learning_rate=config.std_lr,
         init_stdev=config.init_std,
-        logger=logger,
         seed=config.seed,
+        logger=logger,
     )
 
     # Train.

@@ -63,7 +63,6 @@ class State(TaskState):
     key: jnp.ndarray
 
 
-#@partial(jax.vmap, in_axes=(0, None))
 def create_ants(key: jnp.ndarray) -> AntStatus:
     k_pos_x, k_pos_y, k_angle = random.split(key, 3)
     vel = ang_vel = 0.
@@ -101,6 +100,7 @@ def move_agent(agent: AntStatus, action) -> AntStatus:
     return AntStatus(pos_x=pos_x, pos_y=pos_y, angle=angle, vel=vel, ang_vel=ang_vel, context1=context1, context2=context2)
 
 def update_field(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
+    field = jnp.where(field > 0.0, field - 0.001, field)
     x = agent.pos_x.astype(jnp.int32)
     y = agent.pos_y.astype(jnp.int32)
     field = field.at[y-1, x].set(1.0)
