@@ -38,11 +38,13 @@ SCREEN_W = 600
 SCREEN_H = 600
 ANT_RADIUS = 20
 SENSOR_RADIUS = 2
-MIN_DIST = 2 * ANT_RADIUS
 NUM_SENSORS = 7
 DELTA_ANG = 2 * 3.14 / NUM_SENSORS
+MIN_ANG = -2 * 3.14
+MAX_ANG = 2 * 3.14
 NUM_ACTION = 2  # velocity, angular-velocity
 NUM_CONTEXT_NEURON = 2
+NUM_AGENTS = 10
 
 @dataclass
 class AntStatus(object):
@@ -56,29 +58,35 @@ class AntStatus(object):
 
 @dataclass
 class State(TaskState):
-    agent_state: AntStatus
+    agent_state: jnp.ndarray
     field: jnp.ndarray
     obs: jnp.ndarray
     steps: jnp.int32
     key: jnp.ndarray
 
-
-def create_ants(key: jnp.ndarray) -> AntStatus:
+def create_ant(key: jnp.ndarray) -> AntStatus:
     k_pos_x, k_pos_y, k_angle = random.split(key, 3)
     vel = ang_vel = 0.
     context1 = context2 = 0.
     return AntStatus(
         pos_x=random.uniform(
             k_pos_x, shape=(), dtype=jnp.float32,
-            minval=MIN_DIST, maxval=SCREEN_W - MIN_DIST),
+            minval=ANT_RADIUS, maxval=SCREEN_W - ANT_RADIUS),
         pos_y=random.uniform(
             k_pos_y, shape=(), dtype=jnp.float32,
-            minval=MIN_DIST, maxval=SCREEN_H - MIN_DIST),
+            minval=ANT_RADIUS, maxval=SCREEN_H - ANT_RADIUS),
         angle=random.uniform(
-            k_angle, shape=(), dtype=jnp.float32),
+            k_angle, shape=(), dtype=jnp.float32,
+            minval=MIN_ANG, maxval=MAX_ANG),
         vel=vel, ang_vel=ang_vel,
         context1=context1, context2=context2)
 
+def create_ants(key: jnp.ndarray) -> jnp.ndarray:
+    keys = random.split(key, NUM_AGENTS)
+    ants = []
+    for i in range(NUM_AGENTS):
+        ants.append(create_ant(keys[i]))
+    return ants
 
 def get_reward(field: jnp.ndarray, agent: AntStatus) -> jnp.float32:
     x = agent.pos_x.astype(jnp.int32)
@@ -86,9 +94,16 @@ def get_reward(field: jnp.ndarray, agent: AntStatus) -> jnp.float32:
     reward = field[y, x]
     return reward
 
+def get_rewards(field: jnp.ndarray, agents: jnp.ndarray) -> jnp.ndarray:
+    # get mean reward
+    sum = 0.0
+    for i in range(NUM_AGENTS):
+        sum += get_reward(field, agents[i])
+    return sum / NUM_AGENTS
+
 def move_agent(agent: AntStatus, action) -> AntStatus:
     vel = 1.5 - action[0]
-    ang_vel = action[1] * 0.01
+    ang_vel = action[1] * 0.05
 
     angle = agent.angle + ang_vel
     pos_x = (agent.pos_x + vel * jnp.cos(angle)) % SCREEN_W
@@ -99,19 +114,28 @@ def move_agent(agent: AntStatus, action) -> AntStatus:
 
     return AntStatus(pos_x=pos_x, pos_y=pos_y, angle=angle, vel=vel, ang_vel=ang_vel, context1=context1, context2=context2)
 
-def update_field(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
+def move_agents(agents: jnp.ndarray, action) -> jnp.ndarray:
+    new_agents = []
+    for i in range(NUM_AGENTS):
+        act_start = i * (NUM_ACTION + NUM_CONTEXT_NEURON)
+        act_end = act_start + (NUM_ACTION + NUM_CONTEXT_NEURON)
+        new_agents.append(move_agent(agents[i], action[act_start:act_end]))
+    return new_agents
+
+def update_field(field: jnp.ndarray, agents: jnp.ndarray) -> jnp.ndarray:
     field = jnp.where(field > 0.0, field - 0.001, field)
-    x = agent.pos_x.astype(jnp.int32)
-    y = agent.pos_y.astype(jnp.int32)
-    field = field.at[y-1, x].set(1.0)
-    field = field.at[y  , x].set(1.0)
-    field = field.at[y+1, x].set(1.0)
-    field = field.at[y, x-1].set(1.0)
-    field = field.at[y, x  ].set(1.0)
-    field = field.at[y, x+1].set(1.0)
+    for i in range(NUM_AGENTS):
+        x = agents[i].pos_x.astype(jnp.int32)
+        y = agents[i].pos_y.astype(jnp.int32)
+        field = field.at[y-1, x].set(1.0)
+        field = field.at[y  , x].set(1.0)
+        field = field.at[y+1, x].set(1.0)
+        field = field.at[y, x-1].set(1.0)
+        field = field.at[y, x  ].set(1.0)
+        field = field.at[y, x+1].set(1.0)
     return field
 
-def get_obs(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
+def get_observation(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
     x = agent.pos_x
     y = agent.pos_y
 
@@ -125,6 +149,12 @@ def get_obs(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
     obs.append(agent.context2)
     return jnp.array(obs)
 
+def get_observations(field: jnp.ndarray, agents: jnp.ndarray) -> jnp.ndarray:
+    obs = []
+    for i in range(NUM_AGENTS):
+        obs.append(get_observation(field, agents[i]))
+    return jnp.array(obs).ravel()
+
 class Pheromone(VectorizedTask):
     def __init__(self,
                  max_steps: int = 1000,
@@ -132,27 +162,27 @@ class Pheromone(VectorizedTask):
 
         self.max_steps = max_steps
         self.test = test
-        self.obs_shape = tuple([NUM_SENSORS + NUM_CONTEXT_NEURON, ])
-        self.act_shape = tuple([NUM_ACTION + NUM_CONTEXT_NEURON, ])
+        self.obs_shape = tuple([(NUM_SENSORS + NUM_CONTEXT_NEURON) * NUM_AGENTS, ])
+        self.act_shape = tuple([(NUM_ACTION + NUM_CONTEXT_NEURON) * NUM_AGENTS, ])
 
         def reset_fn(key):
             next_key, key = random.split(key)
-            agent = create_ants(key)
+            agents = create_ants(key)
             field = jnp.zeros((SCREEN_H, SCREEN_W), dtype=jnp.float32)
-            obs = get_obs(field, agent)
-            return State(agent_state=agent, field=field, obs=obs,
+            obs = get_observations(field, agents)
+            return State(agent_state=agents, field=field, obs=obs,
                          steps=jnp.zeros((), dtype=jnp.int32), key=next_key)
         self._reset_fn = jax.jit(jax.vmap(reset_fn))
 
         def step_fn(state, action):
             next_key, _ = random.split(state.key)
-            agent = move_agent(state.agent_state, action)
-            reward = get_reward(state.field, agent)
-            field = update_field(state.field, agent)
+            agents = move_agents(state.agent_state, action)
+            reward = get_rewards(state.field, agents)
+            field = update_field(state.field, agents)
             steps = state.steps + 1
             done = jnp.where(steps >= max_steps, 1, 0)
-            obs = get_obs(field, agent)
-            return State(agent_state=agent, field=field, obs=obs,
+            obs = get_observations(field, agents)
+            return State(agent_state=agents, field=field, obs=obs,
                          steps=steps, key=next_key), reward, done
         self._step_fn = jax.jit(jax.vmap(step_fn))
 
@@ -174,26 +204,29 @@ class Pheromone(VectorizedTask):
         state = tree_util.tree_map(lambda s: s[task_id], state)
 
         # Draw the agent
-        agent = state.agent_state
-        x, y, angle = agent.pos_x, agent.pos_y, agent.angle
-        x_top = x + ANT_RADIUS * jnp.cos(angle)
-        y_top = y + ANT_RADIUS * jnp.sin(angle)
-        sensor_data = jnp.array(state.obs)
-        draw.ellipse(
-            (x - ANT_RADIUS, y - ANT_RADIUS,
-             x + ANT_RADIUS, y + ANT_RADIUS),
-             outline=(255, 0, 0))
-        draw.line((x, y, x_top, y_top), fill=(255, 0, 0), width=1)
-        draw.ellipse((x - SENSOR_RADIUS, y - SENSOR_RADIUS,
-                      x + SENSOR_RADIUS, y + SENSOR_RADIUS),
-                      fill=(0, 0, 0), outline=(0, 0, 0))
-        for i in range(NUM_SENSORS):
-            ang = i * DELTA_ANG + agent.angle
-            x_sensor = x + ANT_RADIUS * jnp.cos(ang)
-            y_sensor = y + ANT_RADIUS * jnp.sin(ang)
-            color = (200, 200, 0) if sensor_data[i] == 0. else (0, 255, 0)
+        for i in range(NUM_AGENTS):
+            agent = state.agent_state[i]
+            x, y, angle = agent.pos_x, agent.pos_y, agent.angle
+            x_top = x + ANT_RADIUS * jnp.cos(angle)
+            y_top = y + ANT_RADIUS * jnp.sin(angle)
+            obs_start = i * (NUM_SENSORS + NUM_CONTEXT_NEURON)
+            obs_end = obs_start + NUM_SENSORS
+            sensor_data = jnp.array(state.obs[obs_start:obs_end])
             draw.ellipse(
-                (x_sensor - SENSOR_RADIUS, y_sensor - SENSOR_RADIUS,
-                 x_sensor + SENSOR_RADIUS, y_sensor + SENSOR_RADIUS),
-                 fill=color)
+                (x - ANT_RADIUS, y - ANT_RADIUS,
+                x + ANT_RADIUS, y + ANT_RADIUS),
+                outline=(255, 0, 0))
+            draw.line((x, y, x_top, y_top), fill=(255, 0, 0), width=1)
+            draw.ellipse((x - SENSOR_RADIUS, y - SENSOR_RADIUS,
+                        x + SENSOR_RADIUS, y + SENSOR_RADIUS),
+                        fill=(0, 0, 0), outline=(0, 0, 0))
+            for j in range(NUM_SENSORS):
+                ang = j * DELTA_ANG + agent.angle
+                x_sensor = x + ANT_RADIUS * jnp.cos(ang)
+                y_sensor = y + ANT_RADIUS * jnp.sin(ang)
+                color = (200, 200, 0) if sensor_data[j] == 0. else (0, 255, 0)
+                draw.ellipse(
+                    (x_sensor - SENSOR_RADIUS, y_sensor - SENSOR_RADIUS,
+                    x_sensor + SENSOR_RADIUS, y_sensor + SENSOR_RADIUS),
+                    fill=color)
         return img

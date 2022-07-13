@@ -25,7 +25,8 @@ import jax
 
 from pheromone import Pheromone
 from evojax.policy.mlp import MLPPolicy
-from evojax.algo import CMA
+#from evojax.algo import CMA
+from evojax.algo import PGPE
 from evojax import Trainer
 from evojax import util
 
@@ -80,12 +81,15 @@ def main(config):
         output_dim=train_task.act_shape[0],
         output_act_fn='softmax',
     )
-    solver = CMA(
+    solver = PGPE(
         pop_size=config.pop_size,
         param_size=policy.num_params,
+        optimizer='adam',
+        center_learning_rate=config.center_lr,
+        stdev_learning_rate=config.std_lr,
         init_stdev=config.init_std,
-        seed=config.seed,
         logger=logger,
+        seed=config.seed,
     )
 
     # Train.
