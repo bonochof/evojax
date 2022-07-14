@@ -25,7 +25,6 @@ import jax
 
 from pheromone import Pheromone
 from evojax.policy.mlp import MLPPolicy
-#from evojax.algo import CMA
 from evojax.algo import PGPE
 from evojax import Trainer
 from evojax import util
@@ -38,13 +37,13 @@ def parse_args():
     parser.add_argument(
         '--hidden-size', type=int, default=5, help='Policy hidden size.')
     parser.add_argument(
-        '--num-tests', type=int, default=100, help='Number of test rollouts.')
+        '--num-tests', type=int, default=1, help='Number of test rollouts.')
     parser.add_argument(
         '--n-repeats', type=int, default=16, help='Training repetitions.')
     parser.add_argument(
         '--max-iter', type=int, default=100, help='Max training iterations.')
     parser.add_argument(
-        '--test-interval', type=int, default=50, help='Test interval.')
+        '--test-interval', type=int, default=100, help='Test interval.')
     parser.add_argument(
         '--log-interval', type=int, default=10, help='Logging interval.')
     parser.add_argument(
@@ -72,14 +71,14 @@ def main(config):
     logger.info('EvoJAX Pheromone')
     logger.info('=' * 30)
 
-    max_steps = 1000
+    max_steps = 2000
     train_task = Pheromone(test=False, max_steps=max_steps)
     test_task = Pheromone(test=True, max_steps=max_steps)
     policy = MLPPolicy(
         input_dim=train_task.obs_shape[0],
-        hidden_dims=[config.hidden_size, ],
+        hidden_dims=[train_task.hidden_shape, ],
         output_dim=train_task.act_shape[0],
-        output_act_fn='softmax',
+        output_act_fn='tanh',
     )
     solver = PGPE(
         pop_size=config.pop_size,

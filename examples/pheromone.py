@@ -44,6 +44,7 @@ MIN_ANG = -2 * 3.14
 MAX_ANG = 2 * 3.14
 NUM_ACTION = 2  # velocity, angular-velocity
 NUM_CONTEXT_NEURON = 2
+NUM_HIDDEN = 5
 NUM_AGENTS = 10
 
 @dataclass
@@ -63,6 +64,16 @@ class State(TaskState):
     obs: jnp.ndarray
     steps: jnp.int32
     key: jnp.ndarray
+
+def init_field() -> jnp.ndarray:
+    center_x = int(SCREEN_W / 2)
+    center_y = int(SCREEN_H / 2)
+    radius = min(center_x, center_y, SCREEN_W - center_x, SCREEN_H - center_y)
+    y, x = jnp.ogrid[:SCREEN_H, :SCREEN_W]
+    dist_from_center = jnp.sqrt((x - center_x)**2 + (y - center_y)**2)
+    field = jnp.where(dist_from_center < radius, (radius - dist_from_center) / radius, 0.0)
+    return field
+    #return jnp.zeros((SCREEN_H, SCREEN_W), dtype=jnp.float32)
 
 def create_ant(key: jnp.ndarray) -> AntStatus:
     k_pos_x, k_pos_y, k_angle = random.split(key, 3)
@@ -91,7 +102,7 @@ def create_ants(key: jnp.ndarray) -> jnp.ndarray:
 def get_reward(field: jnp.ndarray, agent: AntStatus) -> jnp.float32:
     x = agent.pos_x.astype(jnp.int32)
     y = agent.pos_y.astype(jnp.int32)
-    reward = field[y, x]
+    reward = jnp.where(field[y, x] == 0., -1, field[y, x])
     return reward
 
 def get_rewards(field: jnp.ndarray, agents: jnp.ndarray) -> jnp.ndarray:
@@ -123,7 +134,8 @@ def move_agents(agents: jnp.ndarray, action) -> jnp.ndarray:
     return new_agents
 
 def update_field(field: jnp.ndarray, agents: jnp.ndarray) -> jnp.ndarray:
-    field = jnp.where(field > 0.0, field - 0.001, field)
+    field = field - 0.001
+    field = jnp.where(field < 0., 0.0, field)
     for i in range(NUM_AGENTS):
         x = agents[i].pos_x.astype(jnp.int32)
         y = agents[i].pos_y.astype(jnp.int32)
@@ -164,11 +176,12 @@ class Pheromone(VectorizedTask):
         self.test = test
         self.obs_shape = tuple([(NUM_SENSORS + NUM_CONTEXT_NEURON) * NUM_AGENTS, ])
         self.act_shape = tuple([(NUM_ACTION + NUM_CONTEXT_NEURON) * NUM_AGENTS, ])
+        self.hidden_shape = NUM_HIDDEN * NUM_AGENTS
 
         def reset_fn(key):
             next_key, key = random.split(key)
             agents = create_ants(key)
-            field = jnp.zeros((SCREEN_H, SCREEN_W), dtype=jnp.float32)
+            field = init_field()
             obs = get_observations(field, agents)
             return State(agent_state=agents, field=field, obs=obs,
                          steps=jnp.zeros((), dtype=jnp.int32), key=next_key)
