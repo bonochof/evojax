@@ -23,7 +23,7 @@ import os
 import shutil
 import jax
 
-from pheromone2 import Pheromone
+from pheromone import Pheromone
 from evojax.policy.mlp import MLPPolicy
 from evojax.algo import PGPE
 from evojax import Trainer

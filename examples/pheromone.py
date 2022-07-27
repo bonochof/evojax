@@ -45,7 +45,7 @@ MAX_ANG = 2 * 3.14
 NUM_ACTION = 2  # velocity, angular-velocity
 NUM_CONTEXT_NEURON = 2
 NUM_HIDDEN = 5
-NUM_AGENTS = 10
+NUM_AGENTS = 1
 
 @dataclass
 class AntStatus(object):
@@ -54,8 +54,7 @@ class AntStatus(object):
     angle: jnp.float32
     vel: jnp.float32
     ang_vel: jnp.float32
-    context1: jnp.float32
-    context2: jnp.float32
+    contexts: jnp.ndarray
 
 @dataclass
 class State(TaskState):
@@ -78,7 +77,7 @@ def init_field() -> jnp.ndarray:
 def create_ant(key: jnp.ndarray) -> AntStatus:
     k_pos_x, k_pos_y, k_angle = random.split(key, 3)
     vel = ang_vel = 0.
-    context1 = context2 = 0.
+    contexts = jnp.zeros(NUM_CONTEXT_NEURON, dtype=jnp.float32)
     return AntStatus(
         pos_x=random.uniform(
             k_pos_x, shape=(), dtype=jnp.float32,
@@ -90,7 +89,7 @@ def create_ant(key: jnp.ndarray) -> AntStatus:
             k_angle, shape=(), dtype=jnp.float32,
             minval=MIN_ANG, maxval=MAX_ANG),
         vel=vel, ang_vel=ang_vel,
-        context1=context1, context2=context2)
+        contexts=contexts)
 
 def create_ants(key: jnp.ndarray) -> jnp.ndarray:
     keys = random.split(key, NUM_AGENTS)
@@ -120,10 +119,9 @@ def move_agent(agent: AntStatus, action) -> AntStatus:
     pos_x = (agent.pos_x + vel * jnp.cos(angle)) % SCREEN_W
     pos_y = (agent.pos_y + vel * jnp.sin(angle)) % SCREEN_H
 
-    context1 = action[2]
-    context2 = action[3]
+    contexts = action[2:]
 
-    return AntStatus(pos_x=pos_x, pos_y=pos_y, angle=angle, vel=vel, ang_vel=ang_vel, context1=context1, context2=context2)
+    return AntStatus(pos_x=pos_x, pos_y=pos_y, angle=angle, vel=vel, ang_vel=ang_vel, contexts=contexts)
 
 def move_agents(agents: jnp.ndarray, action) -> jnp.ndarray:
     new_agents = []
@@ -157,8 +155,8 @@ def get_observation(field: jnp.ndarray, agent: AntStatus) -> jnp.ndarray:
         x_sensor = ((x + ANT_RADIUS * jnp.cos(ang)).astype(jnp.int32)) % SCREEN_W
         y_sensor = ((y + ANT_RADIUS * jnp.sin(ang)).astype(jnp.int32)) % SCREEN_H
         obs.append(field[y_sensor, x_sensor])
-    obs.append(agent.context1)
-    obs.append(agent.context2)
+    for i in range(NUM_CONTEXT_NEURON):
+        obs.append(agent.contexts[i])
     return jnp.array(obs)
 
 def get_observations(field: jnp.ndarray, agents: jnp.ndarray) -> jnp.ndarray:
